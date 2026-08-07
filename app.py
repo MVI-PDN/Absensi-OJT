@@ -29,7 +29,8 @@ model = None
 if gemini_api_key:
     try:
         genai.configure(api_key=gemini_api_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        # Kita panggil model utamanya terlebih dahulu
+        model = genai.GenerativeModel("gemini-1.5-flash-latest")
         st.sidebar.success("✅ AI Engine Online & Siap Digunakan!")
     except Exception as e:
         st.sidebar.error("❌ API Key tidak valid. Silakan periksa kembali.")
@@ -127,7 +128,17 @@ if st.button("🚀 Hasilkan Analisis & Prediksi Multi-Pair via AI", use_containe
                 ### 4. 🛡️ Strategi Eksekusi & Manajemen Risiko
                 """
                 
-                response = model.generate_content(prompt)
+                # Coba generate dengan model utama
+                try:
+                    response = model.generate_content(prompt)
+                except Exception as model_err:
+                    # Jika gagal (Error 404), otomatis beralih ke model gemini-pro
+                    if "404" in str(model_err) or "not found" in str(model_err).lower():
+                        fallback_model = genai.GenerativeModel("gemini-pro")
+                        response = fallback_model.generate_content(prompt)
+                    else:
+                        raise model_err
+
                 st.success("✅ Analisis Berhasil Dibuat!")
                 st.markdown(response.text)
                 
