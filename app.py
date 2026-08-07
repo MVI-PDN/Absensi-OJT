@@ -1,83 +1,104 @@
+import google.generativeai as genai
 import pandas as pd
-import plotly.express as px
-import requests
 import streamlit as st
-from fredapi import Fred
 
-st.set_page_config(page_title="Macro News & Prediction Dashboard", layout="wide")
-st.title("📊 Macroeconomic News Dashboard & XAU/USD Predictor")
-
-fred_api_key = st.sidebar.text_input(
-    "Masukkan FRED API Key:", type="password", value=""
+# ==========================================
+# 1. KONFIGURASI APLIKASI
+# ==========================================
+st.set_page_config(
+    page_title="AI Multi-Pair News & Bias Predictor", layout="wide"
 )
 
-news_option = st.sidebar.selectbox(
-    "Pilih Indikator Berita:",
-    [
-        "Non-Farm Payrolls (PAYEMS)",
-        "Unemployment Rate (UNRATE)",
-        "CPI Inflation (CPIAUCSL)",
-        "Fed Funds Rate (FEDFUNDS)",
-    ],
+st.title("🤖 AI Fundamental News & Multi-Pair Forex Predictor")
+st.caption(
+    "Analisis Skenario Dampak Berita High-Impact Tanpa Menunggu Input Detik Pertama"
 )
 
-indicator_code_map = {
-    "Non-Farm Payrolls (PAYEMS)": "PAYEMS",
-    "Unemployment Rate (UNRATE)": "UNRATE",
-    "CPI Inflation (CPIAUCSL)": "CPIAUCSL",
-    "Fed Funds Rate (FEDFUNDS)": "FEDFUNDS",
-}
+# Sidebar
+st.sidebar.header("⚙️ Pengaturan AI Engine")
+gemini_api_key = st.sidebar.text_input(
+    "Masukkan Gemini API Key:", type="password"
+)
 
-series_id = indicator_code_map[news_option]
+# Form Input Berita
+st.subheader("📰 Data Berita High Impact Mendatang")
 
-st.subheader("🎯 Live Prediction Engine: NFP Malam Ini")
-
-col1, col2, col3 = st.columns(3)
+col1, col2, col3, col4 = st.columns(4)
 with col1:
-    forecast_val = st.number_input("Forecast (Konsensus):", value=185)
+    news_title = st.text_input("Nama Berita:", value="Non-Farm Payrolls (NFP)")
 with col2:
-    previous_val = st.number_input("Previous (Bulan Lalu):", value=206)
+    currency_target = st.selectbox(
+        "Mata Uang Utama:", ["USD", "JPY", "GBP", "EUR", "AUD"]
+    )
 with col3:
-    actual_input = st.number_input("Actual (Diisi Saat Rilis):", value=0)
-
-if actual_input != 0:
-    st.markdown("### 🤖 Hasil Analisis Otomatis Rilis Data:")
-    if actual_input > forecast_val and actual_input > previous_val:
-        st.error(
-            "🔴 **PREDIKSI: BEARISH XAU/USD (BULLISH USD)**\n\n"
-            "Data Tenaga Kerja Sangat Kuat. Potensi Fed menunda pemangkasan suku bunga."
-        )
-    elif actual_input < forecast_val and actual_input < previous_val:
-        st.success(
-            "🟢 **PREDIKSI: BULLISH XAU/USD (BEARISH USD)**\n\n"
-            "Data Tenaga Kerja Lemah. Mendorong ekspektasi pemangkasan suku bunga Fed (*Dovish*)."
-        )
-    else:
-        st.warning(
-            "🟡 **PREDIKSI: MIXED / WHIPSAW (HATI-HATI)**\n\n"
-            "Data mendekati perkiraan atau bercampur. Kemungkinan lonjakan 2 arah."
-        )
+    forecast_val = st.text_input("Forecast (Konsensus):", value="185K")
+with col4:
+    previous_val = st.text_input("Previous (Bulan Lalu):", value="206K")
 
 st.divider()
-st.subheader(f"📈 Histori Tahunan Data: {news_option}")
 
-if fred_api_key:
-    try:
-        fred = Fred(api_key=fred_api_key)
-        df_data = fred.get_series(series_id)
-        df = pd.DataFrame(df_data, columns=["Nilai"]).reset_index()
-        df.rename(columns={"index": "Tanggal"}, inplace=True)
-        df["Tanggal"] = pd.to_datetime(df["Tanggal"])
-        df_filtered = df[df["Tanggal"] >= "2005-01-01"]
+# Selected Pair Analysis Checklist
+st.subheader("💱 Pilih Pair Forex/Commodity yang Ingin Di-Analisa AI")
+selected_pairs = st.multiselect(
+    "Target Pairs:",
+    [
+        "XAU/USD (Gold)",
+        "USD/JPY",
+        "GBP/USD",
+        "EUR/USD",
+        "USD/CAD",
+        "AUD/USD",
+    ],
+    default=["XAU/USD (Gold)", "USD/JPY", "GBP/USD"],
+)
 
-        fig = px.line(
-            df_filtered,
-            x="Tanggal",
-            y="Nilai",
-            title=f"Tren Histori {news_option} (2005 - Sekarang)",
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    except Exception as e:
-        st.error(f"Error FRED API Key: {e}")
-else:
-    st.info("💡 Masukkan FRED API Key di sidebar untuk memuat grafik historis 20 tahun.")
+extra_context = st.text_area(
+    "Isu Sentimen Terkini (Opsional):",
+    placeholder="Contoh: Geopolitik Timur Tengah memanas, Kenaikan Yield US10Y, Pidato Dovish Powell kemarin...",
+)
+
+# ==========================================
+# 2. PROMPT AI GENERATOR
+# ==========================================
+if st.button("🚀 Hasilkan Analisis & Prediksi Multi-Pair via AI"):
+    if not gemini_api_key:
+        st.error(" Silakan masukkan Gemini API Key di sidebar kiri!")
+    else:
+        try:
+            genai.configure(api_key=gemini_api_key)
+            model = genai.GenerativeModel("gemini-1.5-flash")
+
+            prompt = f"""
+            Anda adalah analis pasar keuangan senior (Macro Economist & Institutional Forex Trader) berpengalaman 20+ tahun.
+            
+            Tolong buatkan analisis skenario terintegrasi sebelum rilis berita berikut:
+            - Berita: {news_title} (Mata Uang Utama: {currency_target})
+            - Data Perkiraan (Forecast): {forecast_val}
+            - Data Sebelumnya (Previous): {previous_val}
+            - Pasangan Mata Uang Target: {', '.join(selected_pairs)}
+            - Catatan Sentimen Tambahan: {extra_context if extra_context else "Tidak ada"}
+
+            Berikan output berbentuk laporan terstruktur dengan format Markdown:
+            
+            ### 1. 📌 Rangkuman Ekspektasi Pasar (Pre-Market Sentiment)
+            Singkat tentang apa yang diinginkan pasar dari {currency_target}.
+
+            ### 2. ⚡ Skenario Rilis Data & Analisis Bias
+            Buat 2 Skenario Utama:
+            - **Skenario A (Data Aktual SANGAT KUAT / Hawkish {currency_target})**
+            - **Skenario B (Data Aktual SANGAT LEMAH / Dovish {currency_target})**
+
+            ### 3. 🎯 Prediksi Bias Per Pair (Tabel Ringkasan)
+            Buat tabel untuk pair: {', '.join(selected_pairs)} dengan kolom:
+            | Pair | Bias Skenario A (Kuat) | Bias Skenario B (Lemah) | Alasan Fundamental Singkat |
+
+            ### 4. 🛡️ Strategi Eksekusi Aman (Risk Management)
+            Tips bertindak sebelum vs sesudah berita rilis tanpa terjebak whipsaw/fakeout.
+            """
+
+            with st.spinner("AI sedang menganalisis korelasi pasar..."):
+                response = model.generate_content(prompt)
+                st.markdown(response.text)
+
+        except Exception as e:
+            st.error(f"Gagal memproses analisis AI: {e}")
