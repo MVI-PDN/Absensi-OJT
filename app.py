@@ -1,16 +1,13 @@
 import streamlit as st
 import openpyxl
+import pandas as pd
 from openpyxl.styles import Font, Alignment, Border, Side
 import io
 
-# Konfigurasi Halaman Website
-st.set_page_config(page_title="Generator Absensi OJT", layout="centered", page_icon="⚙️")
+# Konfigurasi Halaman Website agar lebih lebar (untuk menampung tabel)
+st.set_page_config(page_title="Absensi OJT Digital", layout="wide", page_icon="📝")
 
 def get_color_str(fill):
-    """
-    Fungsi khusus untuk mengekstrak kode warna dari sel Excel.
-    Menangani berbagai cara openpyxl menyimpan format warna.
-    """
     if not fill: return None
     if fill.fgColor:
         if fill.fgColor.type == 'rgb': return fill.fgColor.rgb
@@ -19,38 +16,28 @@ def get_color_str(fill):
         return str(fill.start_color.index)
     return None
 
-# Judul dan Deskripsi Web
-st.title("⚙️ Auto-Generate Absensi OJT")
-st.write("Aplikasi ini membaca file Jadwal Induk (warna blok) untuk membuat template absensi mingguan secara otomatis.")
+st.title("📝 Sistem Absensi OJT Digital")
+st.write("Upload Jadwal Induk, pilih minggu, lalu isi absensi siswa langsung di website ini.")
 
-# Fitur Upload File
+# 1. Upload File
 st.markdown("### 1. Upload Jadwal Induk")
 uploaded_file = st.file_uploader("Upload file OJT 2026.xlsx di sini", type=["xlsx"])
 
 if uploaded_file is not None:
     try:
-        # Load workbook dari file yang diupload
         wb_source = openpyxl.load_workbook(uploaded_file, data_only=True)
-        
-        # Validasi apakah Sheet 'JADWAL' ada
         if 'JADWAL' not in wb_source.sheetnames:
-            st.error("❌ Error: Tidak menemukan sheet bernama 'JADWAL'. Pastikan file yang diupload benar.")
+            st.error("❌ Error: Sheet 'JADWAL' tidak ditemukan!")
         else:
             ws_source = wb_source['JADWAL']
-            st.success("✅ File berhasil dibaca!")
             
-            # --- PROSES 1: EKSTRAKSI JADWAL & WARNA ---
-            st.markdown("### 2. Pilih Minggu")
+            # Ekstrak Jadwal
             weeks_data = {}
-            
-            # Scanning area jadwal (Baris 4-30, Kolom 9-12)
             for row in range(4, 30):
                 for col in range(9, 13):
                     cell = ws_source.cell(row=row, column=col)
-                    # Jika sel berisi angka (menandakan minggu ke-X)
                     if cell.value and isinstance(cell.value, (int, float)):
                         color_str = get_color_str(cell.fill)
-                        # Ambil tanggal di sebelah kanan nomor minggu
                         date_range = ws_source.cell(row=row, column=col+1).value
                         weeks_data[int(cell.value)] = {
                             'color': color_str,
@@ -58,50 +45,89 @@ if uploaded_file is not None:
                         }
             
             if not weeks_data:
-                st.warning("⚠️ Tidak dapat mendeteksi jadwal mingguan. Pastikan format tabel di sebelah kanan sesuai.")
+                st.warning("⚠️ Tidak dapat mendeteksi jadwal mingguan.")
             else:
-                # Mengurutkan opsi dropdown dari minggu terkecil ke terbesar
-                week_options = sorted(list(weeks_data.keys()))
-                selected_week = st.selectbox("Pilih Jadwal Minggu Ke-:", week_options)
+                st.markdown("### 2. Pilih Jadwal & Isi Absensi")
                 
-                # Tombol Eksekusi
-                if st.button("🚀 Generate Template Absensi", type="primary"):
-                    with st.spinner(f"Sedang memproses data untuk Minggu ke-{selected_week}..."):
-                        
-                        target_color = weeks_data[selected_week]['color']
-                        target_date = weeks_data[selected_week]['date']
-                        
-                        # --- PROSES 2: EKSTRAKSI NAMA SISWA BERDASARKAN WARNA ---
-                        # Ambil nama kelas di Baris 4 (Kolom C-G)
-                        classes = {}
-                        for col in range(3, 8):
-                            classes[col] = ws_source.cell(row=4, column=col).value
-                            
-                        # Scan nama siswa di Baris 5-55 (Kolom C-G)
-                        students = []
-                        for row in range(5, 55):
-                            for col in range(3, 8):
-                                cell = ws_source.cell(row=row, column=col)
-                                # Pastikan sel berisi teks nama (bukan angka/kosong)
-                                if cell.value and isinstance(cell.value, str) and len(cell.value) > 2:
-                                    if get_color_str(cell.fill) == target_color:
-                                        students.append({
-                                            'name': str(cell.value).strip(),
-                                            'class': str(classes.get(col, '')).strip()
-                                        })
-                        
-                        if not students:
-                            st.error(f"❌ Tidak ada siswa yang ditemukan untuk Minggu ke-{selected_week}. (Warna jadwal mungkin tidak cocok dengan warna blok siswa).")
-                        else:
-                            # Urutkan siswa berdasarkan kelas
-                            students.sort(key=lambda x: x['class'])
-                            
-                            # --- PROSES 3: PEMBUATAN FILE EXCEL BARU (OUTPUT) ---
+                # Menggunakan layout kolom
+                col1, col2 = st.columns([1, 2])
+                with col1:
+                    week_options = sorted(list(weeks_data.keys()))
+                    selected_week = st.selectbox("Pilih Minggu Ke-:", week_options)
+                    target_color = weeks_data[selected_week]['color']
+                    target_date = weeks_data[selected_week]['date']
+                    
+                    st.info(f"**Tanggal:** {target_date}")
+
+                # Ekstrak Siswa berdasarkan minggu terpilih
+                classes = {col: ws_source.cell(row=4, column=col).value for col in range(3, 8)}
+                students = []
+                for row in range(5, 55):
+                    for col in range(3, 8):
+                        cell = ws_source.cell(row=row, column=col)
+                        if cell.value and isinstance(cell.value, str) and len(cell.value) > 2:
+                            if get_color_str(cell.fill) == target_color:
+                                students.append({
+                                    'Nama Siswa': str(cell.value).strip(),
+                                    'Kelas': str(classes.get(col, '')).strip()
+                                })
+                
+                if not students:
+                    st.error("Siswa tidak ditemukan untuk minggu ini.")
+                else:
+                    students.sort(key=lambda x: x['Kelas'])
+                    
+                    # --- MEMBUAT DATAFRAME UNTUK TABEL INTERAKTIF ---
+                    # Membuat data awal (default Hadir/True)
+                    df_data = []
+                    for idx, s in enumerate(students):
+                        df_data.append({
+                            "NO": idx + 1,
+                            "Nama Siswa": s['Nama Siswa'],
+                            "Kelas": s['Kelas'],
+                            "Senin": True,
+                            "Selasa": True,
+                            "Rabu": True,
+                            "Kamis": True,
+                            "Jumat": True,
+                            "Keterangan": ""
+                        })
+                    
+                    df = pd.DataFrame(df_data)
+                    
+                    st.markdown("#### Tabel Absensi (Bisa di-edit langsung)")
+                    st.caption("Petunjuk: Centang kotak jika Hadir. Hilangkan centang jika tidak hadir. Ketik di kolom Keterangan untuk alasan (Sakit/Izin).")
+                    
+                    # --- MENAMPILKAN TABEL YANG BISA DI-EDIT (DATA EDITOR) ---
+                    # Menyimpan hasil editan user ke dalam variabel `edited_df`
+                    edited_df = st.data_editor(
+                        df,
+                        column_config={
+                            "NO": st.column_config.NumberColumn("NO", disabled=True),
+                            "Nama Siswa": st.column_config.TextColumn("Nama Siswa", disabled=True),
+                            "Kelas": st.column_config.TextColumn("Kelas", disabled=True),
+                            "Senin": st.column_config.CheckboxColumn("Senin", default=True),
+                            "Selasa": st.column_config.CheckboxColumn("Selasa", default=True),
+                            "Rabu": st.column_config.CheckboxColumn("Rabu", default=True),
+                            "Kamis": st.column_config.CheckboxColumn("Kamis", default=True),
+                            "Jumat": st.column_config.CheckboxColumn("Jumat", default=True),
+                            "Keterangan": st.column_config.TextColumn("Keterangan (S/I/A)")
+                        },
+                        hide_index=True,
+                        use_container_width=True,
+                        height=500 # Tinggi tabel
+                    )
+                    
+                    st.divider()
+                    
+                    # --- TOMBOL GENERATE EXCEL DARI DATA YANG DIEDIT ---
+                    st.markdown("### 3. Simpan Hasil Absensi")
+                    if st.button("💾 Generate File Excel Absensi", type="primary"):
+                        with st.spinner("Membuat file Excel..."):
                             out_wb = openpyxl.Workbook()
                             out_ws = out_wb.active
                             out_ws.title = "ABSENSI REKAP"
                             
-                            # Konfigurasi Gaya (Styling)
                             bold_font = Font(bold=True)
                             center_align = Alignment(horizontal='center', vertical='center')
                             thin_border = Border(left=Side(style='thin'), right=Side(style='thin'),
@@ -125,32 +151,43 @@ if uploaded_file is not None:
                                 c = out_ws.cell(row=6, column=col_idx, value=name)
                                 c.font = bold_font; c.alignment = center_align; c.border = thin_border
                                 
-                            # Mengisi Data Siswa
+                            # Memasukkan Data dari Tabel Interaktif ke Excel
                             start_row = 7
-                            for idx, s in enumerate(students):
+                            for idx, row_data in edited_df.iterrows():
                                 row = start_row + idx
+                                
                                 # No, Nama, Kelas
-                                c1 = out_ws.cell(row=row, column=1, value=idx + 1)
-                                c1.alignment = center_align; c1.border = thin_border
+                                out_ws.cell(row=row, column=1, value=row_data['NO']).alignment = center_align
+                                out_ws.cell(row=row, column=2, value=row_data['Nama Siswa'])
+                                out_ws.cell(row=row, column=3, value=row_data['Kelas']).alignment = center_align
                                 
-                                c2 = out_ws.cell(row=row, column=2, value=s['name'])
-                                c2.border = thin_border
+                                # Menghitung Kehadiran
+                                total_hadir = 0
+                                days = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat']
                                 
-                                c3 = out_ws.cell(row=row, column=3, value=s['class'])
-                                c3.alignment = center_align; c3.border = thin_border
-                                
-                                # Centang Hadir (Senin-Jumat)
-                                for col in range(4, 9):
-                                    c = out_ws.cell(row=row, column=col, value='✔')
-                                    c.alignment = center_align; c.border = thin_border
+                                for col_offset, day in enumerate(days):
+                                    col_idx = 4 + col_offset
+                                    is_hadir = row_data[day]
                                     
-                                # Total Kehadiran
-                                c9 = out_ws.cell(row=row, column=9, value=5)
-                                c9.alignment = center_align; c9.border = thin_border
+                                    # Jika dicentang (True), beri tanda '✔', jika tidak beri '-'
+                                    mark = '✔' if is_hadir else '-'
+                                    if is_hadir:
+                                        total_hadir += 1
+                                        
+                                    out_ws.cell(row=row, column=col_idx, value=mark).alignment = center_align
                                 
-                                # Kolom Kosong dengan Border
-                                out_ws.cell(row=row, column=10).border = thin_border
-                                out_ws.cell(row=row, column=11).border = thin_border
+                                # Total Kehadiran
+                                out_ws.cell(row=row, column=9, value=total_hadir).alignment = center_align
+                                
+                                # Kosongkan kolom Unit (bisa diisi manual nanti)
+                                out_ws.cell(row=row, column=10, value="")
+                                
+                                # Masukkan Keterangan
+                                out_ws.cell(row=row, column=11, value=str(row_data['Keterangan']) if pd.notna(row_data['Keterangan']) else "")
+                                
+                                # Pasang Border untuk seluruh baris
+                                for c_idx in range(1, 12):
+                                    out_ws.cell(row=row, column=c_idx).border = thin_border
 
                             # Mengatur Lebar Kolom
                             out_ws.column_dimensions['A'].width = 5
@@ -161,19 +198,17 @@ if uploaded_file is not None:
                             out_ws.column_dimensions['J'].width = 18
                             out_ws.column_dimensions['K'].width = 35
                             
-                            # --- PROSES 4: PENYIAPAN FILE UNTUK DOWNLOAD ---
                             buffer = io.BytesIO()
                             out_wb.save(buffer)
                             buffer.seek(0)
                             
-                            st.success(f"✅ Selesai! Berhasil membuat absensi untuk {len(students)} siswa.")
+                            st.success("✅ File Excel berhasil dibuat dengan data absensi terbaru!")
                             
-                            # Tombol Download
                             st.download_button(
                                 label=f"📥 Download Absensi Minggu {selected_week}",
                                 data=buffer,
-                                file_name=f"Absensi_OJT_Minggu_{selected_week}.xlsx",
+                                file_name=f"Absensi_OJT_Minggu_{selected_week}_Terisi.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                             )
     except Exception as e:
-        st.error(f"Terjadi kesalahan saat memproses file: {e}")
+        st.error(f"Terjadi kesalahan: {e}")
