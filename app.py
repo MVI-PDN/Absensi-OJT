@@ -31,14 +31,21 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 def get_color_str(fill):
-    """Mengekstrak kode warna dari sel Excel."""
-    if not fill: return None
-    if fill.fgColor:
-        if fill.fgColor.type == 'rgb': return fill.fgColor.rgb
-        elif fill.fgColor.type == 'indexed': return str(fill.fgColor.indexed)
-    if fill.start_color and fill.start_color.index:
-        return str(fill.start_color.index)
-    return None
+    """Mengekstrak kode warna dari sel Excel secara lebih akurat (Mengabaikan Alpha Channel)."""
+    if not fill or not fill.start_color: 
+        return "NO_COLOR"
+    
+    color = fill.start_color
+    if color.type == 'rgb' and color.rgb:
+        # Ambil 6 karakter terakhir untuk mengabaikan alpha channel (misal FF92D050 -> 92D050)
+        val = str(color.rgb)
+        return val[2:] if len(val) == 8 else val
+    elif color.type == 'theme':
+        return f"theme_{color.theme}_{color.tint}"
+    elif color.type == 'indexed':
+        return f"indexed_{color.indexed}"
+    
+    return str(color.rgb)
 
 # --- INISIALISASI SESSION STATE ---
 if 'data_loaded' not in st.session_state:
@@ -91,18 +98,27 @@ if uploaded_file is not None and not st.session_state.data_loaded:
                         }
             st.session_state.weeks_data = weeks
 
-            # Ekstrak Data Siswa
-            classes = {col: ws_source.cell(row=4, column=col).value for col in range(3, 8)}
+            # Ekstrak Data Siswa 
+            # FIX: Mengubah range(3, 8) menjadi range(3, 9) agar kolom H ikut terbaca.
+            classes = {col: str(ws_source.cell(row=4, column=col).value or "").strip() for col in range(3, 9)}
             students = {}
             for row in range(5, 60):
-                for col in range(3, 8):
+                for col in range(3, 9):
                     cell = ws_source.cell(row=row, column=col)
                     val = str(cell.value).strip() if cell.value else ""
                     if len(val) > 2:
+                        # FIX: Mencegah nama siswa duplikat saling menimpa
+                        original_val = val
+                        counter = 1
+                        while val in students:
+                            val = f"{original_val} ({counter})"
+                            counter += 1
+                            
                         students[val] = {
-                            'kelas': str(classes.get(col, '')).strip(),
+                            'kelas': classes.get(col, f"Kolom {col}"),
                             'color': get_color_str(cell.fill)
                         }
+                        
             st.session_state.students_data = students
             st.session_state.data_loaded = True
             st.rerun()
