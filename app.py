@@ -24,6 +24,10 @@ if 'weeks_data' not in st.session_state:
     st.session_state.weeks_data = {}
 if 'students_data' not in st.session_state:
     st.session_state.students_data = {}
+if 'absensi_df' not in st.session_state:
+    st.session_state.absensi_df = pd.DataFrame()
+if 'current_viewed_week' not in st.session_state:
+    st.session_state.current_viewed_week = None
 
 st.title("📝 Sistem Absensi OJT Digital (Advanced)")
 st.write("Upload jadwal, kelola pertukaran siswa, dan isi absensi dengan opsi S/I/A.")
@@ -152,28 +156,65 @@ if st.session_state.data_loaded:
         if not active_students:
             st.warning("Tidak ada siswa di minggu ini.")
         else:
-            # Buat DataFrame
-            df_data = []
-            for idx, s in enumerate(active_students):
-                df_data.append({
-                    "NO": idx + 1,
-                    "Nama Siswa": s['Nama Siswa'],
-                    "Kelas": s['Kelas'],
-                    "Senin": "✔",
-                    "Selasa": "✔",
-                    "Rabu": "✔",
-                    "Kamis": "✔",
-                    "Jumat": "✔",
-                    "Keterangan": ""
-                })
+            current_student_names = [s['Nama Siswa'] for s in active_students]
             
-            df = pd.DataFrame(df_data)
+            # Reset tabel jika pindah minggu atau jika jumlah siswa berubah karena fitur "Tukar"
+            need_reset = False
+            if st.session_state.current_viewed_week != selected_week:
+                need_reset = True
+            elif not st.session_state.absensi_df.empty:
+                saved_names = st.session_state.absensi_df['Nama Siswa'].tolist()
+                if saved_names != current_student_names:
+                    need_reset = True
+            else:
+                need_reset = True
+
+            if need_reset:
+                df_data = []
+                for idx, s in enumerate(active_students):
+                    df_data.append({
+                        "NO": idx + 1,
+                        "Nama Siswa": s['Nama Siswa'],
+                        "Kelas": s['Kelas'],
+                        "Senin": "-",
+                        "Selasa": "-",
+                        "Rabu": "-",
+                        "Kamis": "-",
+                        "Jumat": "-",
+                        "Keterangan": ""
+                    })
+                st.session_state.absensi_df = pd.DataFrame(df_data)
+                st.session_state.current_viewed_week = selected_week
+
+            st.info("💡 **Tips Aksi Cepat:** Gunakan tombol di bawah untuk mengisi tabel secara massal.")
             
-            # Konfigurasi Pilihan Dropdown untuk Absensi
+            c_btn1, c_btn2, c_btn3 = st.columns(3)
+            if c_btn1.button("✅ Semua Hadir (Senin-Jumat)", use_container_width=True):
+                for day in ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat']:
+                    st.session_state.absensi_df[day] = '✔'
+                st.rerun()
+                
+            if c_btn2.button("📅 Set Hari Ini Saja Hadir", use_container_width=True):
+                import datetime
+                hari_ini = datetime.datetime.now().strftime("%A")
+                map_hari = {'Monday': 'Senin', 'Tuesday': 'Selasa', 'Wednesday': 'Rabu', 'Thursday': 'Kamis', 'Friday': 'Jumat'}
+                if hari_ini in map_hari:
+                    st.session_state.absensi_df[map_hari[hari_ini]] = '✔'
+                    st.toast(f"Berhasil menandai hadir masal untuk hari {map_hari[hari_ini]}!")
+                    st.rerun()
+                else:
+                    st.warning("Hari ini bukan hari kerja (Senin-Jumat).")
+                    
+            if c_btn3.button("🧹 Bersihkan Semua Data", use_container_width=True):
+                for day in ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat']:
+                    st.session_state.absensi_df[day] = '-'
+                st.session_state.absensi_df['Keterangan'] = ''
+                st.rerun()
+
             opsi_absen = ["✔", "S", "I", "A", "-"]
             
             edited_df = st.data_editor(
-                df,
+                st.session_state.absensi_df,
                 column_config={
                     "NO": st.column_config.NumberColumn("NO", disabled=True, width="small"),
                     "Nama Siswa": st.column_config.TextColumn("Nama Siswa", disabled=True, width="medium"),
@@ -189,6 +230,21 @@ if st.session_state.data_loaded:
                 use_container_width=True,
                 height=min(40 * len(active_students) + 40, 600) # Tinggi dinamis
             )
+            
+            # Simpan perubahan manual user ke memori
+            st.session_state.absensi_df = edited_df
+
+            with st.expander("📊 Lihat Statistik Real-Time Kehadiran", expanded=True):
+                tot_hadir = (edited_df[['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat']] == '✔').sum().sum()
+                tot_sakit = (edited_df[['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat']] == 'S').sum().sum()
+                tot_izin = (edited_df[['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat']] == 'I').sum().sum()
+                tot_alfa = (edited_df[['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat']] == 'A').sum().sum()
+                
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Total Poin Hadir", tot_hadir)
+                m2.metric("Total Sakit (S)", tot_sakit)
+                m3.metric("Total Izin (I)", tot_izin)
+                m4.metric("Total Alfa (A)", tot_alfa)
 
             st.divider()
 
